@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🌸</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+<style>
+/* VOICE: tender, quiet, a little magic
+   IDEA: a realistic bouquet rendered live as coloured ASCII, like a terminal painting
+   PICTURE: stargazer + white lilies, buds, leaves, kraft wrap, satin bow; grows, opens, sways
+   COLOUR and TYPE: near-black ground, colour comes from the flowers themselves; JetBrains Mono
+   LAYOUT: one bouquet filling the screen, nothing else */
+:root{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0;height:100%;overflow:hidden;background:#000}
+body{display:flex;align-items:center;justify-content:center}
+#c{display:block}
+#replay{position:fixed;top:12px;right:12px;background:transparent;border:1px solid #2e2540;color:#9d8fb3;font:700 13px "JetBrains Mono",monospace;padding:10px 14px;border-radius:8px;cursor:pointer;min-height:44px;opacity:.7}
+#replay:hover{opacity:1}
+#replay:focus-visible{outline:2px solid #ff8fc0;outline-offset:2px}
+</style>
+</head>
+<body>
+<canvas id="c" role="img" aria-label="Animated ASCII bouquet of lilies"></canvas>
+<script>
+{
+const RAMP=" .`^,:;!i~+-?)(|/trxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const out=document.getElementById("c"),oc=out.getContext("2d");
+const sc=document.createElement("canvas"),sx=sc.getContext("2d",{willReadFrequently:true});
+const FONT="'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace";
+let cols,rows,SW,SH,fs,cw,dpr,t0=0,raf=0,lastF=0;
+
+const cl=x=>x<0?0:x>1?1:x,ease=x=>{x=cl(x);return x*x*(3-2*x);};
+const D=Math.PI/180;
+/* x, y, radius, tilt, type (p = pink stargazer, w = white), bloom order */
+const FL=[
+ [0.50,0.21,0.15,0.05,"p",3],
+ [0.27,0.33,0.14,-0.55,"w",1],
+ [0.73,0.32,0.14,0.5,"p",5],
+ [0.15,0.52,0.125,-0.95,"p",0],
+ [0.85,0.51,0.125,0.9,"w",4],
+ [0.36,0.56,0.14,-0.3,"p",2],
+ [0.64,0.57,0.14,0.32,"p",6]];
+const BUDS=[[0.36,0.075,-0.3],[0.65,0.085,0.3],[0.07,0.32,-0.75],[0.93,0.31,0.75]];
+const LEAVES=[[0.03,0.60,0.44],[0.97,0.60,0.56],[0.17,0.73,0.45],[0.83,0.73,0.55],[0.0,0.40,0.46],[1.0,0.39,0.54],[0.26,0.66,0.47],[0.74,0.66,0.53]];
+
+function layout(){
+  const W=innerWidth,H=innerHeight;
+  oc.font="700 100px "+FONT;
+  const k=oc.measureText("M").width/100||0.6;
+  cols=Math.round(Math.min(150,Math.max(66,W/6)));
+  rows=Math.round(cols*1.15*k);
+  fs=Math.min(W*0.97/(cols*k),H*0.95/rows);
+  cw=fs*k;
+  dpr=Math.min(2,devicePixelRatio||1);
+  out.width=Math.round(cols*cw*dpr);out.height=Math.round(rows*fs*dpr);
+  out.style.width=cols*cw+"px";out.style.height=rows*fs+"px";
+  SW=cols*2;SH=Math.round(SW*1.15);
+  sc.width=SW;sc.height=SH;
+}
+
+function stemPath(fx,fy,g){
+  const x0=0.5+(fx-0.5)*0.08,y0=0.98,cx=0.5+(fx-0.5)*0.4,cy=0.74;
+  sx.beginPath();
+  const n=40;
+  for(let i=0;i<=n*g;i++){
+    const t=i/n,u=1-t;
+    const x=u*u*x0+2*u*t*cx+t*t*fx,y=u*u*y0+2*u*t*cy+t*t*fy;
+    i?sx.lineTo(x,y):sx.moveTo(x,y);
+  }
+  sx.strokeStyle="#3f8a35";sx.lineWidth=0.009;sx.lineCap="round";sx.stroke();
+  sx.strokeStyle="rgba(170,230,130,.45)";sx.lineWidth=0.003;sx.stroke();
+}
+
+function leaf(tx,ty,bx,g){
+  const by=0.76,x1=bx+(tx-bx)*g,y1=by+(ty-by)*g;
+  const dx=x1-bx,dy=y1-by,len=Math.hypot(dx,dy);if(len<0.005)return;
+  const nx=-dy/len,ny=dx/len,w=len*0.13,mx=bx+dx*0.5,my=by+dy*0.5;
+  const gr=sx.createLinearGradient(bx,by,x1,y1);
+  gr.addColorStop(0,"#1d4f1c");gr.addColorStop(0.6,"#3f9a3a");gr.addColorStop(1,"#7fcf55");
+  sx.beginPath();sx.moveTo(bx,by);
+  sx.quadraticCurveTo(mx+nx*w*2,my+ny*w*2,x1,y1);
+  sx.quadraticCurveTo(mx-nx*w*1.1,my-ny*w*1.1,bx,by);
+  sx.fillStyle=gr;sx.fill();
+  sx.beginPath();sx.moveTo(bx,by);sx.quadraticCurveTo(mx+nx*w*0.5,my+ny*w*0.5,x1,y1);
+  sx.strokeStyle="rgba(190,240,150,.5)";sx.lineWidth=0.0025;sx.stroke();
+}
+
+function petal(a,L,w,back,pink,R){
+  sx.save();sx.rotate(a);
+  sx.beginPath();sx.moveTo(0,0);
+  sx.bezierCurveTo(L*0.2,w*1.05,L*0.68,w*1.0,L,w*0.12);
+  sx.bezierCurveTo(L*0.72,-w*0.85,L*0.22,-w,0,0);
+  const g=sx.createLinearGradient(0,0,L,0);
+  if(pink){g.addColorStop(0,"#a3124b");g.addColorStop(0.16,"#e8287a");g.addColorStop(0.55,"#ff4f9a");g.addColorStop(0.88,"#ff9cc8");g.addColorStop(1,"#ffe6f1");}
+  else{g.addColorStop(0,"#8fb845");g.addColorStop(0.18,"#eeeebc");g.addColorStop(0.5,"#ffffff");g.addColorStop(1,"#f1ebf6");}
+  sx.fillStyle=g;sx.fill();
+  if(back){sx.fillStyle="rgba(0,0,0,.18)";sx.fill();}
+  sx.strokeStyle="rgba(0,0,0,.85)";sx.lineWidth=R*0.022;sx.stroke();
+  sx.beginPath();sx.moveTo(L*0.08,0);sx.quadraticCurveTo(L*0.5,w*0.08,L*0.88,0);
+  sx.strokeStyle=pink?"rgba(255,190,220,.75)":"rgba(215,235,180,.8)";sx.lineWidth=R*0.022;sx.stroke();
+  if(pink){
+    sx.fillStyle="#5c0828";
+    for(let k=0;k<6;k++){sx.beginPath();sx.arc(L*(0.17+0.055*k),(k%2?1:-1)*w*(0.22+0.04*k),R*0.017,0,7);sx.fill();}
+  }
+  sx.restore();
+}
+
+function lily(x,y,R,rot,type,o,wob){
+  sx.save();sx.translate(x,y);sx.rotate(rot*0.35+wob);sx.scale(1,0.86);
+  const pink=type==="p",angs=[-90,30,150,-30,90,210];
+  angs.forEach((deg,i)=>{
+    const back=i<3,a=(-90+(deg+90)*(0.06+0.94*o))*D;
+    const L=R*(0.5+0.5*o),w=R*(back?0.37:0.3)*(0.5+0.5*o);
+    petal(a,L,w,back,pink,R);
+  });
+  const th=sx.createRadialGradient(0,0,0,0,0,R*0.2);
+  th.addColorStop(0,"rgba(200,230,110,"+(0.9*o)+")");th.addColorStop(1,"rgba(200,230,110,0)");
+  sx.fillStyle=th;sx.beginPath();sx.arc(0,0,R*0.2,0,7);sx.fill();
+  const s=cl((o-0.55)/0.45);
+  if(s>0){
+    for(let i=0;i<6;i++){
+      const a=(-60+i*60)*D,l=R*0.58*s,ex=Math.cos(a)*l,ey=Math.sin(a)*l;
+      sx.beginPath();sx.moveTo(0,0);sx.lineTo(ex,ey);sx.strokeStyle="#d8eea0";sx.lineWidth=R*0.014;sx.stroke();
+      sx.save();sx.translate(ex,ey);sx.rotate(a+Math.PI/2);
+      sx.beginPath();sx.ellipse(0,0,R*0.065,R*0.026,0,0,7);sx.fillStyle="#a8401a";sx.fill();
+      sx.beginPath();sx.ellipse(-R*0.015,-R*0.006,R*0.03,R*0.01,0,0,7);sx.fillStyle="#e8853a";sx.fill();
+      sx.restore();
+    }
+    const pa=-100*D,pl=R*0.7*s;
+    sx.beginPath();sx.moveTo(0,0);sx.lineTo(Math.cos(pa)*pl,Math.sin(pa)*pl);sx.strokeStyle="#cbe68a";sx.lineWidth=R*0.02;sx.stroke();
+    sx.beginPath();sx.arc(Math.cos(pa)*pl,Math.sin(pa)*pl,R*0.035,0,7);sx.fillStyle="#93c23a";sx.fill();
+  }
+  sx.restore();
+}
+
+function bud(x,y,rot,g,wob){
+  if(g<=0)return;
+  const R=0.11;
+  sx.save();sx.translate(x,y);sx.rotate(rot*0.4+wob);
+  const L=R*0.75*g,w=R*0.15*g;
+  const gr=sx.createLinearGradient(0,w,0,-L);
+  gr.addColorStop(0,"#3f8a35");gr.addColorStop(0.55,"#a5c46a");gr.addColorStop(1,"#f08cbc");
+  sx.beginPath();sx.moveTo(0,w);
+  sx.bezierCurveTo(w*1.3,0,w*0.8,-L*0.7,0,-L);
+  sx.bezierCurveTo(-w*0.8,-L*0.7,-w*1.3,0,0,w);
+  sx.fillStyle=gr;sx.fill();
+  sx.beginPath();sx.moveTo(0,0);sx.lineTo(0,-L*0.9);sx.strokeStyle="rgba(255,220,235,.5)";sx.lineWidth=0.003;sx.stroke();
+  sx.restore();
+}
+
+function coneX(y,side){
+  const f=(y-0.68)/(1.13-0.68);
+  return 0.5+side*(0.335-0.285*f);
+}
+function wrap(a){
+  if(a<=0)return;
+  sx.save();
+  sx.beginPath();sx.rect(-1,1.15-a*0.5,3,1);sx.clip();
+  const N=10,tops=[];
+  for(let k=0;k<=N;k++){
+    const x=0.165+k*(0.67/N),q=(x-0.5)/0.335;
+    tops.push([x,0.71-0.06*q*q+(k%2?0.018:-0.012)]);
+  }
+  for(let k=0;k<N;k++){
+    const b0=0.455+k*(0.09/N),b1=0.455+(k+1)*(0.09/N);
+    const g=sx.createLinearGradient(0,0.68,0,1.13);
+    if(k%2){g.addColorStop(0,"#d8a873");g.addColorStop(1,"#6e4a26");}
+    else{g.addColorStop(0,"#a87943");g.addColorStop(1,"#4c3118");}
+    sx.beginPath();sx.moveTo(tops[k][0],tops[k][1]);sx.lineTo(tops[k+1][0],tops[k+1][1]);
+    sx.lineTo(b1,1.13);sx.lineTo(b0,1.13);sx.closePath();sx.fillStyle=g;sx.fill();
+  }
+  sx.beginPath();tops.forEach(([x,y],i)=>i?sx.lineTo(x,y):sx.moveTo(x,y));
+  sx.strokeStyle="rgba(255,225,180,.7)";sx.lineWidth=0.004;sx.stroke();
+  sx.restore();
+}
+function ribbon(a){
+  if(a<=0)return;
+  sx.save();sx.globalAlpha=a;
+  const y=0.885,l=coneX(y,-1),r=coneX(y,1);
+  const g=sx.createLinearGradient(0,y-0.02,0,y+0.02);
+  g.addColorStop(0,"#8a0f3e");g.addColorStop(0.45,"#ff5c97");g.addColorStop(1,"#8a0f3e");
+  sx.fillStyle=g;sx.fillRect(l-0.005,y-0.018,r-l+0.01,0.036);
+  [[-1,0.36],[1,-0.36]].forEach(([s,rot])=>{
+    sx.save();sx.translate(0.5+s*0.062,y-0.012);sx.rotate(rot);
+    const lg=sx.createRadialGradient(0,0,0.01,0,0,0.07);
+    lg.addColorStop(0,"#5a0828");lg.addColorStop(0.55,"#e23a7c");lg.addColorStop(1,"#ff8ab5");
+    sx.beginPath();sx.ellipse(0,0,0.068,0.04,0,0,7);sx.fillStyle=lg;sx.fill();
+    sx.beginPath();sx.ellipse(s*0.008,0,0.032,0.014,0,0,7);sx.fillStyle="#2a0412";sx.fill();
+    sx.restore();
+  });
+  [[-1,0.445,1.0],[1,0.56,1.01]].forEach(([s,ex,ey])=>{
+    sx.beginPath();sx.moveTo(0.5+s*0.008,y);sx.quadraticCurveTo(0.5+s*0.03,y+0.06,ex,ey);
+    sx.lineTo(ex+s*0.022,ey-0.012);sx.quadraticCurveTo(0.5+s*0.045,y+0.05,0.5+s*0.02,y);
+    sx.closePath();sx.fillStyle="#c81f63";sx.fill();
+  });
+  const kg=sx.createRadialGradient(0.495,y-0.016,0.002,0.5,y-0.01,0.026);
+  kg.addColorStop(0,"#ffb3cf");kg.addColorStop(1,"#a3134a");
+  sx.beginPath();sx.ellipse(0.5,y-0.01,0.024,0.02,0,0,7);sx.fillStyle=kg;sx.fill();
+  sx.restore();
+}
+
+function scene(t){
+  const sw=reduce?0:0.014*Math.sin(t*0.75)*ease((t-6)/1.5);
+  sx.translate(0.5,1.12);sx.rotate(sw);sx.translate(-0.5,-1.12);
+  const lg=ease((t-0.5)/1.6);
+  LEAVES.forEach(([tx,ty,bx])=>leaf(tx,ty,bx,lg));
+  const grow=FL.map((f,i)=>cl((t-0.9-f[5]*0.12)/1.3));
+  const bgrow=BUDS.map((b,i)=>cl((t-1.2-i*0.15)/1.3));
+  FL.forEach((f,i)=>stemPath(f[0],f[1]+0.02,grow[i]));
+  BUDS.forEach((b,i)=>stemPath(b[0],b[1]+0.03,bgrow[i]));
+  BUDS.forEach((b,i)=>bud(b[0],b[1]+0.03,b[2],ease((t-2.2-i*0.15)/0.8),reduce?0:0.04*Math.sin(t*1.4+i*2)));
+  FL.slice().map((f,i)=>[f,i]).sort((a,b)=>a[0][1]-b[0][1]).forEach(([f,i])=>{
+    const [x,y,R,rot,type,ord]=f;
+    const appear=ease((t-2.0-ord*0.12)/0.5);
+    if(appear<=0)return;
+    const o=ease((t-2.6-ord*0.4)/1.7);
+    const wob=reduce?0:0.035*Math.sin(t*1.1+i*1.7)*ease((t-6)/1.5);
+    lily(x,y,R*appear,rot,type,o,wob);
+  });
+  wrap(ease(t/1.1));
+  sx.strokeStyle="#3f8a35";sx.lineWidth=0.008;
+  [0.475,0.5,0.525].forEach(x=>{if(t>0.2){sx.beginPath();sx.moveTo(x,1.12);sx.lineTo(x+(x-0.5)*0.4,1.16);sx.stroke();}});
+  ribbon(ease((t-6.2)/0.8));
+}
+
+function draw(t){
+  sx.setTransform(1,0,0,1,0,0);sx.fillStyle="#000";sx.fillRect(0,0,SW,SH);
+  sx.setTransform(SW,0,0,SW,0,0);
+  scene(t);
+  const d=sx.getImageData(0,0,SW,SH).data;
+  oc.setTransform(dpr,0,0,dpr,0,0);
+  oc.clearRect(0,0,cols*cw,rows*fs);
+  oc.font="700 "+fs+"px "+FONT;oc.textBaseline="top";
+  const n=RAMP.length-1;
+  for(let j=0;j<rows;j++){
+    const y0=Math.floor(j*SH/rows),y1=Math.max(y0+1,Math.floor((j+1)*SH/rows));
+    for(let i=0;i<cols;i++){
+      const x0=Math.floor(i*SW/cols),x1=Math.max(x0+1,Math.floor((i+1)*SW/cols));
+      let r=0,g=0,b=0,c=0;
+      for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){const p=(y*SW+x)*4;r+=d[p];g+=d[p+1];b+=d[p+2];c++;}
+      r/=c;g/=c;b/=c;
+      const m=Math.max(r,g,b),v=m/255;
+      if(v<0.07)continue;
+      const k=(105+150*v)/m;
+      oc.fillStyle="rgb("+(r*k|0)+","+(g*k|0)+","+(b*k|0)+")";
+      oc.fillText(RAMP[Math.max(1,Math.min(n,Math.round(Math.pow(v,1.05)*n)))],i*cw,j*fs);
+    }
+  }
+}
+
+function frame(now){
+  raf=requestAnimationFrame(frame);
+  if(now-lastF<33)return;
+  lastF=now;
+  draw((now-t0)/1000);
+}
+function start(){
+  cancelAnimationFrame(raf);
+  layout();
+  if(reduce){draw(20);return;}
+  t0=performance.now();lastF=0;raf=requestAnimationFrame(frame);
+}
+document.body.addEventListener("click",start);
+let rt;addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(()=>{layout();if(reduce)draw(20);},200);});
+const go=()=>{if(!t0&&!raf)start();};
+(document.fonts&&document.fonts.load?document.fonts.load("700 20px 'JetBrains Mono'"):Promise.resolve()).then(go,go);
+setTimeout(go,1500);
+}
+</script>
+</body>
+</html>
